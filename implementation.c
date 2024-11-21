@@ -960,64 +960,53 @@ void *my_malloc(void *fsptr, void *pref_ptr, size_t *size) {
 /*Once we allcoate and our size is less than what is actually needed, the pointer sets a flag after we used
  * what we need
 */
-void *my_realloc(void *fsptr, void *orig_ptr, size_t *size) {
-      // If size is 0, we free the ptr and return NULL
+void *my_realloc(void *fsptr, void *originalPointer, size_t *size) {
+      /*no need to reallocate*/
       if (*size == ((size_t)0)) {
-            my_free(fsptr, orig_ptr);
+            my_free(fsptr, originalPointer);
             return NULL;
       }
 
       list_s *LL = get_available_memory(fsptr);
 
-      // If ptr is fsptr if the offset was 0 (kind of pointing to null), realloc()
-      // is identical to a call to malloc() for size bytes.
-      if (orig_ptr == fsptr) {
-            // fsptr because we don't have a preference over the location of the pointer
-            // that would be returned, (offset of 0).
-            return get_allocation(fsptr, LL, fsptr, size);
-      }
+      /*if the potiner is equals to the original pointer we just use malloc as it is the same behavior*/
+      if (originalPointer == fsptr) return get_allocation(fsptr, LL, fsptr, size);
 
-      allocate *alloc = (allocate *)(((void *)orig_ptr) - sizeof(size_t));
+      allocate *alloc = (allocate *)(((void *)originalPointer) - sizeof(size_t));
       allocate *temp;
-      void *new_ptr = NULL;
+      void *newPointer = NULL;
 
-      // If the new size is less than before but not enough to make an AllocateFrom
-      // object
+      /*Handling the case when the size we will allocate is less than previous size and if it is less than what we need */
       if ((alloc->remaining_space >= *size) && (alloc->remaining_space < (*size + sizeof(allocate)))) {
             // No new ptr was created
-            new_ptr = orig_ptr;
-      }
-      // If the new size is less than before and we can create an AllocateFrom
-      // element to add to LL
-      else if (alloc->remaining_space > *size) {
-            // Save what is left in temp and add it to the LL
-            temp = (allocate *)(orig_ptr + *size);
+            newPointer = originalPointer;
+      } else if (alloc->remaining_space > *size) {
+            /*if the target size is less than the previous we create an object and add it to the list */
+            temp = (allocate *)(originalPointer + *size);
             temp->remaining_space = alloc->remaining_space - *size - sizeof(size_t);
-            temp->next = 0;  // Offset of zero
-            add_allocation_space(fsptr, LL, temp);
-            // Update remaining space
+            temp->next = 0;
+            addAndAllocationSpace(fsptr, LL, temp);
             alloc->remaining_space = *size;
-            // No new ptr was created
-            new_ptr = orig_ptr;
-      }
-      // If we are asking for more than what we have in alloc
-      else {
-            // Get new space to copy to
-            new_ptr = get_allocation(fsptr, LL, fsptr, size);
-            // We couldn't get enough space
+            newPointer = originalPointer;
+      } else {
+            /*Requesting more space we get the new space
+             * ensure that it will be the size we need
+             * then moving/copying the content to the new space/pointer
+             * then we update the previous space
+            */
+            newPointer = get_allocation(fsptr, LL, fsptr, size);
             if (*size != 0) return NULL;
-            // Copy what was inside orig_ptr into new_ptr
-            memcpy(new_ptr, orig_ptr, alloc->remaining_space);  // memcpy(dst,src,len)
-            // Free the space of the original pointer
-            add_allocation_space(fsptr, LL, alloc);
+            memcpy(newPointer, originalPointer, alloc->remaining_space);  
+            addAndAllocationSpace(fsptr, LL, alloc);
       }
-      return new_ptr;
+      return newPointer;
 }
 
-/* Add space back to List using add_allocation_space */
+/* Add space back to List using addAndAllocationSpace 
+ * And properly moving the pointer to the start
+*/
 void my_free(void *fsptr, void *ptr) {
       if (ptr == NULL) return;
-      // Adjust ptr by size_t to start on the size of pointer
       addAndAllocationSpace(fsptr, get_free_memory_ptr(fsptr), ptr - sizeof(size_t));
 }
 /* End of helper functions */
