@@ -288,6 +288,11 @@ typedef struct index_node_file {
       __myfs_offset first_block;
       
 } file_t;
+typedef struct index_directory 
+{           
+      size_t children_num;
+      __myfs_offset children;
+} directory_t;    
 
 typedef struct index_node
 {
@@ -303,14 +308,6 @@ typedef struct index_node
       } type;
 
 } node_t;
-
-
-typedef struct index_directory 
-{           
-      size_t children_num;
-      __myfs_offset children;
-} directory_t;    
-
 
 /* YOUR HELPER FUNCTIONS GO HERE */
 
@@ -387,7 +384,7 @@ void handler(void *fsptr, size_t file_system_size){
             list_s *LinkedList = get_available_memory(fsptr);
             allocate *free = (offset_to_pointer(fsptr, LinkedList->f_space));
             free->remaining_space = file_system_size - handle->available - sizeof(size_t);
-            memeset(((void *) free) + sizeof(size_t), 0, free->remaining_space);
+            memset(((void *) free) + sizeof(size_t), 0, free->remaining_space);
       }
 }
 
@@ -479,7 +476,7 @@ node_t *resolve_path_to_node(void *fsptr, const char *path, int exclude_tokens){
                   clean_path(components);
                   return NULL;
             }
-            if (strcmp(component, ".") !=0){
+            if (strcmp(*component, ".") !=0){
                   node = getNode(fsptr, &node->type.directory, *component);
                   if (node == NULL) {
                         clean_path(components);
@@ -692,9 +689,9 @@ int appendData(void *fsptr, file_t *file, size_t size){
       /*if we need more space we continue adding*/
       size_t prevSize = block->allocated;
       spaceNeeded = size;
-      dataBlock = ((char *)off_to_ptr(fsptr, block->data));
+      dataBlock = ((char *)offset_to_pointer(fsptr, block->data));
       size_t newDataBlockSize;
-      void *newDataBlock = __malloc_impl(fsptr, dataBlock, &spaceNeeded);
+      void *newDataBlock = my_malloc(fsptr, dataBlock, &spaceNeeded);
       block->size = *(((size_t *)dataBlock) - 1);
       if (newDataBlock == NULL){
             if (spaceNeeded != 0) {
@@ -708,7 +705,7 @@ int appendData(void *fsptr, file_t *file, size_t size){
       } else {
             /*after extending we add anything remaining to the block*/
             appendBytesNumber = block->size - block->allocated;
-            memset(&((char *)off_to_ptr(fsptr, block->data))[prevSize], 0, appendBytesNumber);
+            memset(&((char *)offset_to_pointer(fsptr, block->data))[prevSize], 0, appendBytesNumber);
             block->allocated += appendBytesNumber;
             size -= appendBytesNumber;
 
@@ -720,11 +717,11 @@ int appendData(void *fsptr, file_t *file, size_t size){
                   /*we get the size of the new block*/
                   newDataBlockSize = *(((size_t *)newDataBlock) - 1);
                   /*save the pointer to the next block to the previous block*/
-                  if (prevTempBlock != NULL) prevTempBlock->next_file_block = ptr_to_off(fsptr, tempBlock);
+                  if (prevTempBlock != NULL) prevTempBlock->next_file_block = pointer_to_offset(fsptr, tempBlock);
                   /*We set the information*/
                   tempBlock->size = newDataBlockSize;
                   tempBlock->allocated = spaceNeeded == 0 ? size : newDataBlockSize;
-                  tempBlock->data = ptr_to_off(fsptr, newDataBlock);
+                  tempBlock->data = pointer_to_offset(fsptr, newDataBlock);
                   tempBlock->next_file_block = ((__myfs_offset)0);
                   memset(newDataBlock, 0, tempBlock->allocated);
                   size -= tempBlock->allocated;
@@ -737,7 +734,7 @@ int appendData(void *fsptr, file_t *file, size_t size){
                   tempSize= sizeof(file_block);
                   tempBlock = my_malloc(fsptr, NULL, &tempSize);
                   if ((newDataBlock  == NULL) || (tempBlock == NULL) || (tempSize != 0)) {
-                        removeData(fsptr, off_to_ptr(fsptr, file->first_block), initialFileSize);
+                        removeData(fsptr, offset_to_pointer(fsptr, file->first_block), initialFileSize);
                         return -1;
                   }
             }
@@ -779,7 +776,7 @@ void addAndAllocationSpace(void *fsptr, list_s *LL, allocate *allocation) {
             if (nextAllocationOffset != 0) {
                   /*Merging if possible*/
                   if ((allocationOffset + sizeof(size_t) + allocation->remaining_space) == nextAllocationOffset) {
-                        allocate *after_alloc = off_to_ptr(fsptr, nextAllocationOffset);
+                        allocate *after_alloc = offset_to_pointer(fsptr, nextAllocationOffset);
                         allocation->remaining_space += sizeof(size_t) + after_alloc->remaining_space;
                         allocation->next = after_alloc->next;
                   } else {
@@ -801,7 +798,7 @@ void addAndAllocationSpace(void *fsptr, list_s *LL, allocate *allocation) {
 }
 
 void expand_memory_block(void *fsptr, allocate *beforePrefered, allocate *originalPrefered, __myfs_offset prefferOffset, size_t *size) {
-      allocate *pref = off_to_ptr(fsptr, prefferOffset);
+      allocate *pref = offset_to_pointer(fsptr, prefferOffset);
       allocate *temp;
       /*trying to get all space from the prefered block*/
       if (pref->remaining_space >= *size) {
@@ -875,7 +872,7 @@ void *get_allocation(void *fsptr, list_s *LL, allocate *originalPrefered, size_t
       }
       /*largest block is the beforeTemp variable */
       beforeTempOffset = LL->f_space;
-      beforeTemp = off_to_ptr(fsptr, beforeTempOffset);
+      beforeTemp = offset_to_pointer(fsptr, beforeTempOffset);
       largestOffset = beforeTempOffset;
       largest = beforeTemp;
       larestSize = beforeTemp->remaining_space;
@@ -1007,7 +1004,7 @@ void *my_realloc(void *fsptr, void *originalPointer, size_t *size) {
 */
 void my_free(void *fsptr, void *ptr) {
       if (ptr == NULL) return;
-      addAndAllocationSpace(fsptr, get_free_memory_ptr(fsptr), ptr - sizeof(size_t));
+      addAndAllocationSpace(fsptr, get_available_memory(fsptr), ptr - sizeof(size_t));
 }
 /* End of helper functions */
 
