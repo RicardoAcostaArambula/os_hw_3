@@ -332,6 +332,7 @@ __myfs_offset_t pointer_to_offset(void *fsptr, void *ptr){
 
 
 /*updates the date/time of the file/node*/
+/*checked*/
 void update_date(node_t *node, int mode){
       if (node == NULL) return;
       struct timespec time;
@@ -437,7 +438,7 @@ char **split_path(const char token, const char *path, int exclude_tokens){
       tokens[num_tokens] = NULL;
       return tokens;
 }
-
+/*Double checked*/
 void clean_path(char **tokens){
       char **paths = tokens;
       while (*paths){
@@ -447,6 +448,7 @@ void clean_path(char **tokens){
       free(tokens);
 }
 /*Gets a pointer/offset to the parent, then looks for the target node/file in its children */
+/*checked*/
 node_t *getNode(void *fsptr, directory_t *dict, const char *child){
       size_t total_chilren = dict->children_num;
       __myfs_offset_t *children = offset_to_pointer(fsptr, dict->children);
@@ -470,6 +472,7 @@ node_t *getNode(void *fsptr, directory_t *dict, const char *child){
  * gets node
  * and returns node
 */
+/*doubled checked*/
 node_t *resolve_path_to_node(void *fsptr, const char *path, int exclude_tokens){
       if (*path != '/') return NULL;
       node_t *node = offset_to_pointer(fsptr, ((handler_struct_t *)fsptr)->root);
@@ -477,7 +480,7 @@ node_t *resolve_path_to_node(void *fsptr, const char *path, int exclude_tokens){
       if (path[1] =='\0') return node;
       char **components = split_path('/', path, exclude_tokens);
       
-      for (char **component = components; component; component++){
+      for (char **component = components; *component; component++){
             /*edge case chilren are in a file*/
             if (!node->is_directory){
                   clean_path(components);
@@ -499,7 +502,7 @@ node_t *resolve_path_to_node(void *fsptr, const char *path, int exclude_tokens){
  * if that is the case, we will get the parent and a node will be created
  * out of the file specified.
 */
-
+/*function double checked missing nested functiosns*/
 node_t *newNode(void *fsptr, const char *path, int *error, int is_file){
       node_t *parent = resolve_path_to_node(fsptr, path, 1);
       if (parent == NULL){
@@ -521,7 +524,7 @@ node_t *newNode(void *fsptr, const char *path, int *error, int is_file){
             *error = EEXIST;
             return NULL;
       }
-      if (length == 0 || length > FILENAME_MAX) return NULL;
+      if ((length == 0) || (length > FILENAME_MAX)) return NULL;
 
       __myfs_offset_t *current_children = offset_to_pointer(fsptr, directory->children);
       allocate *space = (((void *)current_children) - sizeof(size_t));
@@ -529,12 +532,15 @@ node_t *newNode(void *fsptr, const char *path, int *error, int is_file){
        * reallocating the chilren in case the parent has childrens
        * and checking that we have enough space for them
       */
-      size_t valid_chilren = (space->remaining_space) / sizeof(__myfs_offset_t);
+      size_t valid_children = (space->remaining_space) / sizeof(__myfs_offset_t);
       size_t space_needed;
-      if (valid_chilren == directory->children_num){
+      if (valid_children == directory->children_num){
             space_needed = space->remaining_space*2;
             void *new_children = my_realloc(fsptr, current_children, &space_needed);
-            if (space_needed != 0) return NULL;
+            if (space_needed != 0) {
+                  *error = ENOSPC;
+                  return NULL;
+            }
             directory->children = pointer_to_offset(fsptr, new_children);
             current_children = ((__myfs_offset_t *)new_children);
       }
@@ -542,15 +548,22 @@ node_t *newNode(void *fsptr, const char *path, int *error, int is_file){
       node_t *nodeCreated = (node_t *) my_malloc(fsptr, NULL, &space_needed);
       if (space_needed != 0){
             my_free(fsptr, nodeCreated);
+            *error = ENOSPC;
             return NULL;
       }
       if (nodeCreated == NULL){
             my_free(fsptr, nodeCreated);
+            *error= ENOSPC;
             return NULL;
       }
-      memset(nodeCreated->name, '\0', FILENAME_MAX + 1);
+      memset(nodeCreated->name, '\0', FILENAME_MAX + ((size_t)1));
       memcpy(nodeCreated->name, newNodeName, length);
+      update_date(nodeCreated, 1);
+
+      current_children[directory->children_num] = pointer_to_offset(fsptr, nodeCreated);
+      directory->children_num++;
       update_date(parent, 1);
+
       if (is_file){
             nodeCreated->is_directory = 0;
             file_t *file = &nodeCreated->type.file;
@@ -564,10 +577,12 @@ node_t *newNode(void *fsptr, const char *path, int *error, int is_file){
             __myfs_offset_t *ptr = ((__myfs_offset_t*)my_malloc(fsptr, NULL, &space_needed));
             if (space_needed != 0){
                   my_free(fsptr, ptr);
+                  *error = ENOSPC;
                   return NULL;
             }     
             if (ptr == NULL){
                   my_free(fsptr, ptr);
+                  *error = ENOSPC;
                   return NULL;
             }
             directory->children = pointer_to_offset(fsptr, ptr);
@@ -755,7 +770,7 @@ int appendData(void *fsptr, file_t *file, size_t size){
 }
 
 /*Memory allocation own impementation for the system*/
-
+/*chekced*/
 void addAndAllocationSpace(void *fsptr, list_s *LL, allocate *allocation) {
       allocate *temp;
       __myfs_offset_t tempOffset = LL->f_space;
@@ -781,7 +796,9 @@ void addAndAllocationSpace(void *fsptr, list_s *LL, allocate *allocation) {
             /*Figure out the next pointer/offset will be used*/
             temp = offset_to_pointer(fsptr, tempOffset);
             /*get next pointer (the lowest available)*/
-            while ((temp->next != 0) && (temp->next < allocationOffset)) temp = offset_to_pointer(fsptr, temp->next);
+            while ((temp->next != 0) && (temp->next < allocationOffset)) {
+                  temp = offset_to_pointer(fsptr, temp->next);
+            }
             tempOffset= pointer_to_offset(fsptr, temp);
             /*we need to check that the next space in the temp variable is not Null if is the case we point next to it*/
             __myfs_offset_t nextAllocationOffset = temp->next;
@@ -971,6 +988,7 @@ void *my_malloc(void *fsptr, void *pref_ptr, size_t *size) {
 /*Once we allcoate and our size is less than what is actually needed, the pointer sets a flag after we used
  * what we need
 */
+/*checked*/
 void *my_realloc(void *fsptr, void *originalPointer, size_t *size) {
       /*no need to reallocate*/
       if (*size == ((size_t)0)) {
@@ -1048,7 +1066,6 @@ void my_free(void *fsptr, void *ptr) {
    st_mtim
 
 */
-/*IMPLEMENTED NEEDS TESTING*/
 int __myfs_getattr_implem(void *fsptr, size_t fssize, int *errnoptr,
                           uid_t uid, gid_t gid,
                           const char *path, struct stat *stbuf) {
@@ -1238,8 +1255,10 @@ int __myfs_rmdir_implem(void *fsptr, size_t fssize, int *errnoptr,
 */
 int __myfs_mkdir_implem(void *fsptr, size_t fssize, int *errnoptr,
                         const char *path) {
-  /* STUB */
-  return -1;
+      handler(fsptr, fssize);
+      node_t *node = newNode(fsptr, path, errnoptr, 0);
+      if (node == NULL) return -1;
+      return 0;
 }
 
 /* Implements an emulation of the rename system call on the filesystem 
