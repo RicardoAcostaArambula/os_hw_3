@@ -1237,8 +1237,33 @@ int __myfs_unlink_implem(void *fsptr, size_t fssize, int *errnoptr,
 */
 int __myfs_rmdir_implem(void *fsptr, size_t fssize, int *errnoptr,
                         const char *path) {
-  /* STUB */
-  return -1;
+      handler(fsptr, fssize);
+
+      /*we get the node from the path*/
+      node_t *node = resolve_path_to_node(fsptr, path, 0);
+      /*check that it is not null*/
+      if (node == NULL) {
+            *errnoptr = ENOENT;
+            return -1;
+      }
+      /*check that it is a directory*/
+      if (!node->is_directory) {
+            *errnoptr = ENOTDIR;
+            return -1;
+      }
+      /*checking if the directory has children*/
+      directory_t *directory = &node->type.directory;
+      if (directory->children_num != 1){
+            *errnoptr = ENOTEMPTY;
+            return -1;
+      }
+      /*Getting the chilren and the parent*/
+      __myfs_offset_t *children = offset_to_pointer(fsptr, directory->children);
+      node_t *parent = offset_to_pointer(fsptr, *children);
+      /*freeing the chilren and the directory*/
+      my_free(fsptr, children);
+      removeNode(fsptr, &parent->type.directory, node);
+      return 0;
 }
 
 /* Implements an emulation of the mkdir system call on the filesystem 
@@ -1256,8 +1281,12 @@ int __myfs_rmdir_implem(void *fsptr, size_t fssize, int *errnoptr,
 int __myfs_mkdir_implem(void *fsptr, size_t fssize, int *errnoptr,
                         const char *path) {
       handler(fsptr, fssize);
+      /*creating the new node with the helper function*/
       node_t *node = newNode(fsptr, path, errnoptr, 0);
-      if (node == NULL) return -1;
+      if (node == NULL) {
+            *errnoptr = ENOSPC;
+            return -1;
+      }
       return 0;
 }
 
@@ -1333,8 +1362,19 @@ int __myfs_truncate_implem(void *fsptr, size_t fssize, int *errnoptr,
 */
 int __myfs_open_implem(void *fsptr, size_t fssize, int *errnoptr,
                        const char *path) {
-  /* STUB */
-  return -1;
+      handler(fsptr, fssize);
+      /*Getting the node*/
+      node_t *node = resolve_path_to_node(fsptr, path, 0);
+      /*verifying that node is not null*/
+      if (node == NULL) {
+            *errnoptr = ENOENT;
+            return -1;
+      }
+      /*returning the node type 1 for directory and 0 for files*/
+      if (node->is_directory){
+            return 1;
+      }
+      return 0;
 }
 
 /* Implements an emulation of the read system call on the filesystem 
