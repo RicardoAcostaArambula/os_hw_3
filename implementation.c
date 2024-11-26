@@ -236,9 +236,9 @@
 
 /* Helper types and functions */
 
-#define FS_MAGIC_NUMBER 0xDEADBEEF
-#define FS_SIZE 2048
-#define FILENAME_SIZE 255
+#define FS_MAGIC_NUMBER ((uint32_t)0xDEADBEEF)
+#define FS_SIZE ((size_t)1024)
+#define FILENAME_SIZE ((size_t)255)
 
 typedef unsigned int u_int;
 typedef size_t __myfs_offset_t;
@@ -296,7 +296,7 @@ typedef struct index_directory
 
 typedef struct index_node
 {
-      char name[FILENAME_MAX + 1];
+      char name[FILENAME_MAX + ((size_t)1)];
       /*1 for directory 0 for file*/
       int is_directory;
       /*used to store the time for access and modification*/
@@ -314,8 +314,8 @@ typedef struct index_node
 void *my_malloc(void *fsptr, void *pref_pointer, size_t *size);
 void *my_realloc(void *fsptr, void *origin_pointer, size_t *size);
 void my_free(void *fsptr, void *pointer);
-void add_space(void *fsptr, list_s *LinkedList, allocate *orgin_pointer);
-void *get_alloc(void *fsptr, list_s *LinkedList, allocate *origin_pointer, size_t *size);
+void addAndAllocationSpace(void *fsptr, list_s *LinkedList, allocate *orgin_pointer);
+void *get_allocation(void *fsptr, list_s *LinkedList, allocate *origin_pointer, size_t *size);
 void *offset_to_pointer(void *fsptr, __myfs_offset_t offset);
 
 
@@ -343,7 +343,7 @@ void update_date(node_t *node, int mode){
 
 /**Type cast and returns a pointer to available memory*/
 void *get_available_memory(void *fsptr){
-      return &((handler_struct_t *) fsptr)->available;
+      return &((handler_struct_t *)fsptr)->available;
 }
 
 void handler(void *fsptr, size_t file_system_size){
@@ -376,7 +376,7 @@ void handler(void *fsptr, size_t file_system_size){
              * and set a default value to memory of 0
             */
             size_t *children_size = offset_to_pointer(fsptr, handle->root + sizeof(node_t));
-            *children_size = (4 * sizeof(__myfs_offset_t));
+            *children_size = 4 * sizeof(__myfs_offset_t);
             dict->children = pointer_to_offset(fsptr, ((void*)children_size) + sizeof(size_t));
             __myfs_offset_t *ptr = offset_to_pointer(fsptr, dict->children);
             *ptr = 0;
@@ -395,20 +395,23 @@ char *extract_last_path_component(const char* path, unsigned long *component_len
       unsigned long length = strlen(path);
       unsigned long index;
       index = length - 1;
-      while (0 < index){
+      while (index > 0){
             if (path[index]=='/') break;
             index--;
       }
       index+=1;
       *component_length = length - index;
+
       void *ptr = malloc((*component_length + 1) *sizeof(char));
+
       if (ptr == NULL) return NULL;
+
       char *component_copy = (char *) ptr;
       strcpy(component_copy, &path[index]);
       component_copy[*component_length] = '\0';
       return component_copy;
 }
-
+/**all check until this point*/
 /*Splits path and stores it into an array of strings*/
 char **split_path(const char token, const char *path, int exclude_tokens){
       int num_tokens = 0;
@@ -449,11 +452,15 @@ node_t *getNode(void *fsptr, directory_t *dict, const char *child){
       __myfs_offset_t *children = offset_to_pointer(fsptr, dict->children);
       node_t *node = NULL;
       /*return if it is under root*/
-      if (strcmp(child, "..") == 0) return ((node_t *) offset_to_pointer(fsptr, children[0]));
+      if (strcmp(child, "..") == 0) {
+            return ((node_t *)offset_to_pointer(fsptr, children[0]));
+      }
       size_t i = ((size_t)1);
       while (i < total_chilren){
-            node = ((node_t *)offset_to_pointer(fsptr, children[1]));
-            if (strcmp(node->name, child) == 0) return node;
+            node = ((node_t *)offset_to_pointer(fsptr, children[i]));
+            if (strcmp(node->name, child) == 0) {
+                  return node;
+            }
             i++;
       }
       return NULL;
@@ -496,10 +503,12 @@ node_t *resolve_path_to_node(void *fsptr, const char *path, int exclude_tokens){
 node_t *newNode(void *fsptr, const char *path, int *error, int is_file){
       node_t *parent = resolve_path_to_node(fsptr, path, 1);
       if (parent == NULL){
+            *error = ENOENT;
             return NULL;
       }
       /*if it is not a directory we do not want it since we need the file's parent to be a dictetory not a file*/
       if (!parent->is_directory){
+            *error = ENOTDIR;
             return NULL;
       }
       directory_t *directory = &parent->type.directory;
@@ -508,7 +517,10 @@ node_t *newNode(void *fsptr, const char *path, int *error, int is_file){
       unsigned long length;
       char *newNodeName = extract_last_path_component(path, &length);
       /*validate name and allocating space*/
-      if (getNode(fsptr, directory, newNodeName) != NULL) return NULL;
+      if (getNode(fsptr, directory, newNodeName) != NULL) {
+            *error = EEXIST;
+            return NULL;
+      }
       if (length == 0 || length > FILENAME_MAX) return NULL;
 
       __myfs_offset_t *current_children = offset_to_pointer(fsptr, directory->children);
@@ -950,7 +962,9 @@ void *get_allocation(void *fsptr, list_s *LL, allocate *originalPrefered, size_t
 void *my_malloc(void *fsptr, void *pref_ptr, size_t *size) {
       if (*size == ((size_t)0)) return NULL;
       /*if no prefer pointer exist, we set it to a default value */
-      if (pref_ptr == NULL) pref_ptr = fsptr + sizeof(size_t);
+      if (pref_ptr == NULL) {
+            pref_ptr = fsptr + sizeof(size_t);
+      }
       return get_allocation(fsptr, get_available_memory(fsptr), pref_ptr - sizeof(size_t), size);
 }
 
@@ -1164,10 +1178,8 @@ int __myfs_readdir_implem(void *fsptr, size_t fssize, int *errnoptr,
 int __myfs_mknod_implem(void *fsptr, size_t fssize, int *errnoptr,
                         const char *path) {
       handler(fsptr, fssize);
-      int error = 0;
-      node_t *new_node = newNode(fsptr, path, &error, 1);
-      if (!new_node){
-            *errnoptr = error ? error: EEXIST;
+      node_t *new_node = newNode(fsptr, path, errnoptr, 1);
+      if (new_node == NULL){
             return -1;
       }
       return 0;
