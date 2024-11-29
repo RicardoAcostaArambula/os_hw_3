@@ -1360,8 +1360,53 @@ int __myfs_mkdir_implem(void *fsptr, size_t fssize, int *errnoptr,
 */
 int __myfs_rename_implem(void *fsptr, size_t fssize, int *errnoptr,
                          const char *from, const char *to) {
-  /* STUB */
-  return -1;
+    handler(fsptr, fssize);
+    //Resolve source and destination nodes
+    node_t *source_node = resolve_path_to_node(fsptr, from, 0);
+    if (!source_node) {
+        *errnoptr = ENOENT;
+        return -1;
+    }
+    node_t *dest_parent_node = resolve_path_to_node(fsptr, to, 1);
+    if (!dest_parent_node) {
+        *errnoptr = ENOENT;
+        return -1;
+    }
+    if (!dest_parent_node->is_directory) {
+        *errnoptr = ENOTDIR;
+        return -1;
+    }
+    //Extract new name and validate
+    unsigned long name_len;
+    char *new_name = extract_last_path_component(to, &name_len);
+    if (!new_name || name_len == 0 || name_len > FILENAME_MAX) {
+        *errnoptr = EINVAL;
+        return -1;
+    }
+    directory_t *dest_directory = &dest_parent_node->type.directory;
+    //Check for existing name conflicts
+    if (getNode(fsptr, dest_directory, new_name)) {
+        *errnoptr = EEXIST;
+        free(new_name);
+        return -1;
+    }
+    //Remove from the old parent's children list
+    node_t *old_parent_node = resolve_path_to_node(fsptr, from, 1);
+    if (!old_parent_node) {
+        *errnoptr = ENOENT;
+        return -1;
+    }
+    directory_t *old_directory = &old_parent_node->type.directory;
+    removeNode(fsptr, old_directory, source_node);
+    // Add to the new parent's children list
+    strncpy(source_node->name, new_name, FILENAME_MAX);
+    source_node->name[FILENAME_MAX] = '\0';
+    __myfs_offset_t *dest_children = offset_to_pointer(fsptr, dest_directory->children);
+    dest_children[dest_directory->children_num++] = pointer_to_offset(fsptr, source_node);
+    update_date(old_parent_node, 1);
+    update_date(dest_parent_node, 1);
+    free(new_name);
+    return 0;
 }
 
 /* Implements an emulation of the truncate system call on the filesystem 
@@ -1683,7 +1728,25 @@ int __myfs_utimens_implem(void *fsptr, size_t fssize, int *errnoptr,
 
 */
 int __myfs_statfs_implem(void *fsptr, size_t fssize, int *errnoptr,
-                         struct statvfs* stbuf) {
-      
-      return -1;
+                         struct statvfs *stbuf) {
+    handler(fsptr, fssize);
+
+    memset(stbuf, 0, sizeof(struct statvfs));
+    list_s *free_list = get_available_memory(fsptr);
+    __myfs_offset_t free_offset = free_list->f_space;
+    size_t free_space = 0;
+
+    while (free_offset) {
+        Allocate *block = offset_to_pointer(fsptr, free_offset);
+        free_space += block->remaining_space;
+        free_offset = block->next;
+    }
+
+    stbuf->f_bsize = FS_SIZE;                
+    stbuf->f_blocks = fssize / FS_SIZE;
+    stbuf->f_bfree = free_space / FS_SIZE;
+    stbuf->f_bavail = stbuf->f_bfree;
+    stbuf->f_namemax = FILENAME_MAX;
+
+    return 0;
 }
