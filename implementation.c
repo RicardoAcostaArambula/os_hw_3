@@ -331,7 +331,6 @@ __myfs_offset_t pointer_to_offset(void *fsptr, void *ptr){
 
 
 /*updates the date/time of the file/node*/
-/*checked*/
 void update_date(node_t *node, int mode){
       if (node == NULL) return;
       struct timespec time;
@@ -410,7 +409,6 @@ char *extract_last_path_component(const char* path, unsigned long *component_len
       component_copy[*component_length] = '\0';
       return component_copy;
 }
-/**all check until this point*/
 /*Splits path and stores it into an array of strings*/
 char **split_path(const char token, const char *path, int exclude_tokens){
       int num_tokens = 0;
@@ -439,7 +437,7 @@ char **split_path(const char token, const char *path, int exclude_tokens){
       tokens[num_tokens] = NULL;
       return tokens;
 }
-/*Double checked*/
+/*cleans the path with the components that where on it*/
 void clean_path(char **tokens){
       char **paths = tokens;
       while (*paths){
@@ -449,7 +447,6 @@ void clean_path(char **tokens){
       free(tokens);
 }
 /*Gets a pointer/offset to the parent, then looks for the target node/file in its children */
-/*checked*/
 node_t *getNode(void *fsptr, directory_t *dict, const char *child){
       size_t total_chilren = dict->children_num;
       __myfs_offset_t *children = offset_to_pointer(fsptr, dict->children);
@@ -473,7 +470,6 @@ node_t *getNode(void *fsptr, directory_t *dict, const char *child){
  * gets node
  * and returns node
 */
-/*doubled checked*/
 node_t *resolve_path_to_node(void *fsptr, const char *path, int exclude_tokens){
       if (*path != '/') {
             return NULL;
@@ -503,11 +499,10 @@ node_t *resolve_path_to_node(void *fsptr, const char *path, int exclude_tokens){
       return node;
 }
 
-/*It will get a path and check if it is a file to be created
+/* It will get a path and check if it is a file to be created
  * if that is the case, we will get the parent and a node will be created
  * out of the file specified.
 */
-/*function double checked missing nested functiosns*/
 node_t *newNode(void *fsptr, const char *path, int *error, int is_file){
       node_t *parent = resolve_path_to_node(fsptr, path, 1);
       if (parent == NULL){
@@ -681,7 +676,7 @@ void removeData(void *fsptr, file_block *block,  size_t size){
             block = temp;
       }
 }
-
+/*Appends to the file that was passed to it*/
 int appendData(void *fsptr, file_t *file, size_t size){
       /*getting the pointer from offset*/
       file_block *block = offset_to_pointer(fsptr, file->first_block);
@@ -782,7 +777,6 @@ int appendData(void *fsptr, file_t *file, size_t size){
 }
 
 /*Memory allocation own impementation for the system*/
-/*chekced*/
 void addAndAllocationSpace(void *fsptr, list_s *LL, Allocate *allocation) {
       Allocate *temp;
       __myfs_offset_t tempOffset = LL->f_space;
@@ -836,7 +830,7 @@ void addAndAllocationSpace(void *fsptr, list_s *LL, Allocate *allocation) {
             }
       }
 }
-
+/*expands the memory in a given block*/
 void expand_memory_block(void *fsptr, Allocate *beforePrefered, Allocate *originalPrefered, __myfs_offset_t prefferOffset, size_t *size) {
       Allocate *pref = offset_to_pointer(fsptr, prefferOffset);
       Allocate *temp;
@@ -999,7 +993,6 @@ void *my_malloc(void *fsptr, void *pref_ptr, size_t *size) {
 /*Once we allcoate and our size is less than what is actually needed, the pointer sets a flag after we used
  * what we need
 */
-/*checked*/
 void *my_realloc(void *fsptr, void *originalPointer, size_t *size) {
       /*no need to reallocate*/
       if (*size == ((size_t)0)) {
@@ -1230,7 +1223,7 @@ int __myfs_unlink_implem(void *fsptr, size_t fssize, int *errnoptr,
       handler(fsptr, fssize);
 
       /*we get the node from the path*/
-      node_t *node = resolve_path_to_node(fsptr, path, 0);
+      node_t *node = resolve_path_to_node(fsptr, path, 1);
       /*check that it is not null*/
       if (node == NULL) {
             *errnoptr = ENOENT;
@@ -1329,16 +1322,13 @@ int __myfs_rmdir_implem(void *fsptr, size_t fssize, int *errnoptr,
 */
 int __myfs_mkdir_implem(void *fsptr, size_t fssize, int *errnoptr,
                         const char *path) {
-      // printf("I was reached 1");
       handler(fsptr, fssize);
-      //printf("I was reached 2");
       /*creating the new node with the helper function*/
       node_t *node = newNode(fsptr, path, errnoptr, 0);
       if (node == NULL) {
             *errnoptr = ENOSPC;
             return -1;
       }
-      // printf("I was reached 3");
       return 0;
 }
 
@@ -1427,8 +1417,47 @@ int __myfs_rename_implem(void *fsptr, size_t fssize, int *errnoptr,
 */
 int __myfs_truncate_implem(void *fsptr, size_t fssize, int *errnoptr,
                            const char *path, off_t offset) {
-  /* STUB */
-  return -1;
+      /*setting up*/
+      handler(fsptr, fssize);
+      /* there is an error if the offset is less than 0*/
+      if (offset <  0){
+            *errnoptr = EFAULT;
+            return -1;
+      }
+      size_t size = ((size_t) offset);
+      /*we get the node from path provided and check if it is valid*/
+      node_t *node = resolve_path_to_node(fsptr, path, 0);
+      if (node == NULL){
+            *errnoptr = ENOENT;
+            return -1;
+      }
+      if (node->is_directory){
+            *errnoptr = EISDIR;
+            return -1;
+      }
+      /*setting up file*/
+      file_t *file = &node->type.file;
+      size_t finalSize = size;
+      file_block *block = offset_to_pointer(fsptr, file->first_block);
+      /*then we compare it with the size:
+       * in case it is the same there is nothing to be done
+       * when the size is grater then file will be modified
+       * otherwise we update the contento of the file to 0's
+      */
+      if (file->size == size){
+            update_date(node, 0);
+      } else if (file->size > size){
+            update_date(node, 1);
+            file->size = size;
+            removeData(fsptr, block, size);
+      } else {
+            update_date(node, 1);
+            if (appendData(fsptr, file, size) != 0){
+                  return -1;
+            }
+      }
+      file->size = finalSize;
+      return 0;
 }
 
 /* Implements an emulation of the open system call on the filesystem 
